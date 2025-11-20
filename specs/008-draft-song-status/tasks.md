@@ -43,7 +43,7 @@
 **Parallel Safe**: Yes (can run concurrently with Task 1.2)
 
 **Checklist**:
-- [ ] T001 Review Song entity structure in src/App.jsx
+- [X] T001 Review Song entity structure in src/App.jsx
 
 ---
 
@@ -69,7 +69,7 @@
 **Parallel Safe**: Yes (can run concurrently with Task 1.1)
 
 **Checklist**:
-- [ ] T002 [P] Review total duration calculation in src/App.jsx
+- [X] T002 [P] Review total duration calculation in src/App.jsx
 
 ---
 
@@ -117,7 +117,7 @@ const DEFAULT_SONGS = Array.from({ length: 12 }).map((_, i) => ({
 **Reference**: `specs/008-draft-song-status/data-model.md:14-46`
 
 **Checklist**:
-- [ ] T003 [US1] Add isDraft field to DEFAULT_SONGS in src/App.jsx
+- [X] T003 [US1] Add isDraft field to DEFAULT_SONGS in src/App.jsx
 
 ---
 
@@ -160,7 +160,7 @@ const totalDuration = useMemo(() => {
 **Reference**: `specs/008-draft-song-status/contracts/component-api.md:110-134`
 
 **Checklist**:
-- [ ] T004 [P] [US1] Add draft filter to total duration calculation in src/App.jsx
+- [X] T004 [P] [US1] Add draft filter to total duration calculation in src/App.jsx
 
 ---
 
@@ -222,7 +222,7 @@ function SongCard({ song, onUpdate, onZoom, index, ... }) {
 **Reference**: `specs/008-draft-song-status/contracts/component-api.md:131-161`
 
 **Checklist**:
-- [ ] T005 [US1] Add draft checkbox UI to SongCard component in src/App.jsx
+- [X] T005 [US1] Add draft checkbox UI to SongCard component in src/App.jsx
 
 ---
 
@@ -263,7 +263,7 @@ function SongCard({ song, onUpdate, onZoom, index, ... }) {
 **Reference**: `specs/008-draft-song-status/contracts/component-api.md:44-72`
 
 **Checklist**:
-- [ ] T006 [US1] Apply opacity-60 conditional styling to SongCard wrapper in src/App.jsx
+- [X] T006 [US1] Apply opacity-60 conditional styling to SongCard wrapper in src/App.jsx
 
 ---
 
@@ -351,7 +351,7 @@ function SongDetail({ song, onUpdate, onClose }) {
 **Reference**: `specs/008-draft-song-status/contracts/component-api.md:238-274`
 
 **Checklist**:
-- [ ] T008 [P] [US1] [US2] Add draft checkbox to SongDetail zoom view in src/App.jsx
+- [X] T008 [P] [US1] [US2] Add draft checkbox to SongDetail zoom view in src/App.jsx
 
 ---
 
