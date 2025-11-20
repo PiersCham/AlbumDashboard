@@ -1437,7 +1437,10 @@ export default function App() {
         ? song.duration
         : { minutes: 0, seconds: 0 };
 
-      return { ...song, stages: migratedStages, tempo, key, duration };
+      // Migrate isDraft (add default if missing)
+      const isDraft = typeof song.isDraft === 'boolean' ? song.isDraft : false;
+
+      return { ...song, stages: migratedStages, tempo, key, duration, isDraft };
     });
 
     // Fix duplicate IDs - reassign sequential IDs if duplicates found
