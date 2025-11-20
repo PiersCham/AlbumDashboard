@@ -747,16 +747,10 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
     setTempKeyMode(mode);
   }, [song.key]);
 
-  // Draft toggle handler
-  const handleDraftToggle = (event) => {
-    const newIsDraft = event.target.checked;
-    onUpdate({ ...song, isDraft: newIsDraft });
-  };
-
   return (
 		   <div
 		     className={`
-		       bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm p-2 flex flex-col gap-2 h-[295px] w-[376px] relative
+		       bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm p-2 flex flex-col gap-2 h-[295px] w-[376px]
 		       ${song.isDraft ? 'opacity-60' : ''}
 		       ${isDraggingSong ? 'opacity-50' : ''}
 		       ${isDropTargetSong ? 'border-t-2 border-amber-500' : ''}
@@ -767,16 +761,6 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
 		     onDrop={(e) => onDrop(e, index)}
 		     onDragEnd={onDragEnd}
 		   >
-		  {/* Draft checkbox in top-right corner */}
-		  <div className="absolute top-2 right-2 z-10">
-		    <input
-		      type="checkbox"
-		      checked={song.isDraft || false}
-		      onChange={handleDraftToggle}
-		      className="w-4 h-4 cursor-pointer"
-		      title="Mark as draft"
-		    />
-		  </div>
 		  <div className="flex items-center justify-between gap-2">
 			<EditableText
 			  text={song.title}
