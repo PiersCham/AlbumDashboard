@@ -10,6 +10,8 @@ Auto-generated from all feature plans. Last updated: 2025-11-19
 - JavaScript (ES6+), React 19.1.1 + React 19.1.1, React-DOM 19.1.1, Tailwind CSS 4.1.11 (007-song-reorder)
 - localStorage (existing implementation pattern) (007-song-reorder)
 - JavaScript (ES6+) with React 19.1.1 + React 19.1.1, React-DOM 19.1.1, Tailwind CSS 4.1.11 (008-draft-song-status)
+- JavaScript (React 19.1.1) + React (hooks: useState, useMemo, useEffect, useRef), Tailwind CSS 4.1.11 (009-draft-song-count)
+- localStorage (key: `albumProgress_v3`) with JSON export/import (009-draft-song-count)
 
 - JavaScript ES2020+ + React 19.1.1, React DOM 19.1.1 (001-persist-due-date)
 
@@ -29,9 +31,9 @@ npm test; npm run lint
 JavaScript ES2020+: Follow standard conventions
 
 ## Recent Changes
+- 009-draft-song-count: Added JavaScript (React 19.1.1) + React (hooks: useState, useMemo, useEffect, useRef), Tailwind CSS 4.1.11
 - 008-draft-song-status: Added JavaScript (ES6+) with React 19.1.1 + React 19.1.1, React-DOM 19.1.1, Tailwind CSS 4.1.11
 - 007-song-reorder: Added JavaScript (ES6+), React 19.1.1 + React 19.1.1, React-DOM 19.1.1, Tailwind CSS 4.1.11
-- 006-total-album-duration: Added JavaScript (ES2022) with React 19.1.1 + React 19.1.1, Vite 7.1.1 (no additional libraries needed)
 
 
 <!-- MANUAL ADDITIONS START -->
