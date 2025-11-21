@@ -20,6 +20,15 @@ Go to [http://localhost:5173](http://localhost:5173) in your browser.
 
 It has 20 songs on a 5x4 grid, this can be customized with some code tweaks. The dashboard is designed for a 1920×1080 screen, fullscreen with no scrollbar.
 
+## Documentation
+
+For developers contributing to this project, see [DEVELOPMENT.md](./DEVELOPMENT.md) for:
+- Technology stack and architecture decisions
+- Development workflow and best practices
+- Code organization and patterns
+- Testing guidelines
+- Feature implementation process
+
 ## React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
