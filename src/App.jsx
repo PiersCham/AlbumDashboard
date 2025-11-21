@@ -63,6 +63,23 @@ function useCountdown(targetISO) {
 
 const clamp01 = (v) => Math.min(100, Math.max(0, v));
 
+// Feature 001: Persist Due Date - Validation helpers
+function isValidISODate(dateString) {
+  if (typeof dateString !== 'string') return false;
+  const date = new Date(dateString);
+  return date instanceof Date && !isNaN(date.getTime());
+}
+
+function migrateDeadline(storedDeadline) {
+  if (storedDeadline && isValidISODate(storedDeadline)) {
+    return storedDeadline; // Valid
+  }
+  // Invalid/missing: fallback to 12 months from now
+  const defaultDate = new Date();
+  defaultDate.setFullYear(defaultDate.getFullYear() + 1);
+  return defaultDate.toISOString();
+}
+
 function ProgressBar({ value, editable = false, onClick, height = "h-4", label }) {
   const pct = clamp01(value);
   const barColor = pct >= 100 ? "bg-emerald-700" : "bg-amber-700";
@@ -146,9 +163,9 @@ function EditStagePrompt({ initialName, initialValue, onClose }) {
   );
 }
 
-function ExportImport({ songs, albumTitle }) {
+function ExportImport({ songs, albumTitle, targetISO }) {
   const exportJSON = async () => {
-	  const data = JSON.stringify({ songs, albumTitle }, null, 2);
+	  const data = JSON.stringify({ songs, albumTitle, targetISO }, null, 2);
 
 	  // If supported (Chromium browsers), let the user pick the exact file to overwrite
 	  if ('showSaveFilePicker' in window) {
@@ -195,7 +212,13 @@ function ExportImport({ songs, albumTitle }) {
 		  const file = await handle.getFile();
 		  const txt = await file.text();
 		  const data = JSON.parse(txt);
-		  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+		  // Feature 001: Validate targetISO on import
+		  const validatedData = {
+			songs: data.songs,
+			albumTitle: data.albumTitle || 'Album Dashboard',
+			targetISO: migrateDeadline(data.targetISO)
+		  };
+		  localStorage.setItem(STORAGE_KEY, JSON.stringify(validatedData));
 		  window.location.reload();
 		  return;
 		} catch (e) {
@@ -215,7 +238,13 @@ function ExportImport({ songs, albumTitle }) {
 		file.text().then((txt) => {
 		  try {
 			const data = JSON.parse(txt);
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+			// Feature 001: Validate targetISO on import
+			const validatedData = {
+			  songs: data.songs,
+			  albumTitle: data.albumTitle || 'Album Dashboard',
+			  targetISO: migrateDeadline(data.targetISO)
+			};
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(validatedData));
 			window.location.reload();
 		  } catch {
 			alert('Invalid JSON file');
@@ -300,7 +329,7 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
             <div className="text-xs text-neutral-500">Target: {new Date(targetISO).toLocaleString()}</div>
           </div>
         )}
-        <ExportImport songs={songs} albumTitle={albumTitle} />
+        <ExportImport songs={songs} albumTitle={albumTitle} targetISO={targetISO} />
       </div>
     </div>
   );
@@ -506,7 +535,8 @@ export default function App() {
 
   const [songs, setSongs] = useState(() => migrateSongs(stored.songs) || DEFAULT_SONGS);
   const [albumTitle, setAlbumTitle] = useState(() => stored.albumTitle || "Album Dashboard");
-  const [targetISO, setTargetISO] = useState(() => stored.targetISO || new Date("2026-08-01T00:00:00").toISOString());
+  // Feature 001: Use migrateDeadline for validation and default (12 months from now)
+  const [targetISO, setTargetISO] = useState(() => migrateDeadline(stored.targetISO));
 
   const hash = useHashRoute();
   const songIdFromHash = useMemo(() => {
