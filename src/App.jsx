@@ -135,6 +135,21 @@ function normalizeNote(note, mode) {
   if (mode === 'Major' && majorConversions[note]) return majorConversions[note];
   if (mode === 'Minor' && minorConversions[note]) return minorConversions[note];
   return note;
+// Feature 001: Persist Due Date - Validation helpers
+function isValidISODate(dateString) {
+  if (typeof dateString !== 'string') return false;
+  const date = new Date(dateString);
+  return date instanceof Date && !isNaN(date.getTime());
+}
+
+function migrateDeadline(storedDeadline) {
+  if (storedDeadline && isValidISODate(storedDeadline)) {
+    return storedDeadline; // Valid
+  }
+  // Invalid/missing: fallback to 12 months from now
+  const defaultDate = new Date();
+  defaultDate.setFullYear(defaultDate.getFullYear() + 1);
+  return defaultDate.toISOString();
 }
 
 function ProgressBar({ value, editable = false, onClick, height = "h-4", label }) {
@@ -269,7 +284,13 @@ function ExportImport({ songs, albumTitle, targetISO }) {
 		  const file = await handle.getFile();
 		  const txt = await file.text();
 		  const data = JSON.parse(txt);
-		  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+		  // Feature 001: Validate targetISO on import
+		  const validatedData = {
+			songs: data.songs,
+			albumTitle: data.albumTitle || 'Album Dashboard',
+			targetISO: migrateDeadline(data.targetISO)
+		  };
+		  localStorage.setItem(STORAGE_KEY, JSON.stringify(validatedData));
 		  window.location.reload();
 		  return;
 		} catch (e) {
@@ -289,7 +310,13 @@ function ExportImport({ songs, albumTitle, targetISO }) {
 		file.text().then((txt) => {
 		  try {
 			const data = JSON.parse(txt);
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+			// Feature 001: Validate targetISO on import
+			const validatedData = {
+			  songs: data.songs,
+			  albumTitle: data.albumTitle || 'Album Dashboard',
+			  targetISO: migrateDeadline(data.targetISO)
+			};
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(validatedData));
 			window.location.reload();
 		  } catch {
 			alert('Invalid JSON file');
@@ -1432,7 +1459,8 @@ export default function App() {
 
   const [songs, setSongs] = useState(() => migrateSongs(stored.songs) || DEFAULT_SONGS);
   const [albumTitle, setAlbumTitle] = useState(() => stored.albumTitle || "Album Dashboard");
-  const [targetISO, setTargetISO] = useState(() => stored.targetISO || new Date("2026-08-01T00:00:00").toISOString());
+  // Feature 001: Use migrateDeadline for validation and default (12 months from now)
+  const [targetISO, setTargetISO] = useState(() => migrateDeadline(stored.targetISO));
 
   // Drag state for song reordering
   const [draggedSongIndex, setDraggedSongIndex] = useState(null);
