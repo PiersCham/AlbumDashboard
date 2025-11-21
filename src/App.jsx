@@ -386,6 +386,9 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
     return Math.floor(totalSeconds / 60); // Return total minutes
   }, [songs]);
 
+  // Filter non-draft songs for count display
+  const nonDraftSongs = songs.filter(song => !song.isDraft);
+
   return (
     <div className="w-full flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4">
       <div className="flex items-center gap-4">
@@ -399,7 +402,7 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
 
 	  <div className="flex flex-col items-center">
 	  <div className="text-2xl font-black tracking-wider">
-	  {eligibleCount(songs, 90)}/13
+	  {eligibleCount(nonDraftSongs, 90)}/{nonDraftSongs.length}
 	  </div>
 	  <div className="text-sm text-neutral-400">
 	  {formatTotalDuration(totalDuration)}
@@ -1583,18 +1586,23 @@ export default function App() {
 			/>
 
 			{/* Album-wide overall progress (with % in center) */}
-			<div className="px-4 -mt-2 pb-2 relative">
-			  <ProgressBar value={albumAverage(songs)} height="h-9" />
-			  <span
-				className="absolute inset-0 text-white font-bold"
-				style={{
-				  lineHeight: "36px", // match h-9 (36px)
-				  textAlign: "center",
-				}}
-			  >
-				{albumAverage(songs)}%
-			  </span>
-			</div>
+			{(() => {
+			  const nonDraftSongs = songs.filter(song => !song.isDraft);
+			  return (
+				<div className="px-4 -mt-2 pb-2 relative">
+				  <ProgressBar value={albumAverage(nonDraftSongs)} height="h-9" />
+				  <span
+					className="absolute inset-0 text-white font-bold"
+					style={{
+					  lineHeight: "36px", // match h-9 (36px)
+					  textAlign: "center",
+					}}
+				  >
+					{albumAverage(nonDraftSongs)}%
+				  </span>
+				</div>
+			  );
+			})()}
 
 			<div className="px-4 pb-4 h-[calc(100vh-140px)] overflow-hidden">
 			  <div className="grid grid-cols-5 gap-1 justify-items-center">
