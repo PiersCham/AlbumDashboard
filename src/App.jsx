@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 
 /**
  * Album Progress Dashboard — v3
@@ -15,17 +15,41 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const DEFAULT_STAGE_NAMES = [
   "Demo",
-  "Basic Track",
-  "Instruments",
   "Lyrics",
+  "Drums",
+  "Bass",
+  "Rhythm Guitars",
+  "Lead Guitar / Solo",
   "Vocals",
   "Mix",
 ];
 
-const DEFAULT_SONGS = Array.from({ length: 20 }).map((_, i) => ({
+const DEFAULT_TEMPO = 120;
+
+const NOTES = [
+  { value: 'C', label: 'C' },
+  { value: 'Db', label: 'C#/Db' },
+  { value: 'D', label: 'D' },
+  { value: 'Eb', label: 'D#/Eb' },
+  { value: 'E', label: 'E' },
+  { value: 'F', label: 'F' },
+  { value: 'F#', label: 'F#/Gb' },
+  { value: 'G', label: 'G' },
+  { value: 'Ab', label: 'G#/Ab' },
+  { value: 'A', label: 'A' },
+  { value: 'Bb', label: 'A#/Bb' },
+  { value: 'B', label: 'B' }
+];
+
+const MODES = ['Major', 'Minor'];
+
+const DEFAULT_SONGS = Array.from({ length: 12 }).map((_, i) => ({
   id: i + 1,
   title: `Song ${i + 1}`,
   stages: DEFAULT_STAGE_NAMES.map((name) => ({ name, value: 0 })),
+  tempo: DEFAULT_TEMPO,
+  key: null,
+  duration: { minutes: 0, seconds: 0 },
 }));
 
 const STORAGE_KEY = "albumProgress_v3";
@@ -63,6 +87,54 @@ function useCountdown(targetISO) {
 
 const clamp01 = (v) => Math.min(100, Math.max(0, v));
 
+// Tempo validation helper
+function validateTempo(input) {
+  const parsed = parseFloat(input);
+  if (isNaN(parsed)) return DEFAULT_TEMPO;
+  const rounded = Math.round(parsed);
+  return Math.max(30, Math.min(300, rounded));
+}
+
+// Duration helper functions
+const formatDuration = (minutes, seconds) => {
+  const mins = Math.floor(minutes);
+  const secs = Math.floor(seconds);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const validateDuration = (minutes, seconds) => {
+  const clampedMins = Math.max(0, Math.min(59, Math.floor(parseInt(minutes) || 0)));
+  const clampedSecs = Math.max(0, Math.min(59, Math.floor(parseInt(seconds) || 0)));
+  return { minutes: clampedMins, seconds: clampedSecs };
+};
+
+// Helper function to format total album duration
+const formatTotalDuration = (totalMinutes) => {
+  if (totalMinutes >= 59940) return "999h+"; // Cap at 999 hours
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+};
+
+// Parse key string into [note, mode]
+function parseKey(keyString) {
+  if (!keyString) return [null, null];
+  const parts = keyString.split(' ');
+  return [parts[0], parts[1]];
+}
+
+// Normalize note based on mode conventions
+function normalizeNote(note, mode) {
+  const majorConversions = { 'C#': 'Db', 'D#': 'Eb', 'G#': 'Ab', 'A#': 'Bb' };
+  const minorConversions = { 'Db': 'C#' };
+
+  if (mode === 'Major' && majorConversions[note]) return majorConversions[note];
+  if (mode === 'Minor' && minorConversions[note]) return minorConversions[note];
+  return note;
 // Feature 001: Persist Due Date - Validation helpers
 function isValidISODate(dateString) {
   if (typeof dateString !== 'string') return false;
@@ -295,6 +367,21 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
   const { days, hours, minutes, seconds } = useCountdown(targetISO);
   const [editingDate, setEditingDate] = useState(false);
 
+  // Calculate total album duration (memoized)
+  const totalDuration = useMemo(() => {
+    const totalSeconds = songs.reduce((acc, song) => {
+      if (!song.duration) return acc; // Handle missing duration field
+
+      const minutes = Math.max(0, song.duration.minutes || 0);
+      const seconds = Math.max(0, song.duration.seconds || 0);
+      const songSeconds = (minutes * 60) + seconds;
+
+      return acc + songSeconds;
+    }, 0);
+
+    return Math.floor(totalSeconds / 60); // Return total minutes
+  }, [songs]);
+
   return (
     <div className="w-full flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 p-4">
       <div className="flex items-center gap-4">
@@ -305,9 +392,14 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
           placeholder="Album Title"
         />
       </div>
-	  
+
+	  <div className="flex flex-col items-center">
 	  <div className="text-2xl font-black tracking-wider">
-	  {eligibleCount(songs, 75)}/20
+	  {eligibleCount(songs, 90)}/13
+	  </div>
+	  <div className="text-sm text-neutral-400">
+	  {formatTotalDuration(totalDuration)}
+	  </div>
 	  </div>
 
       <div className="flex items-center gap-3 text-right">
@@ -335,11 +427,24 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
   );
 }
 
-function StageRow({ stage, onApply, onRemove, stageRowHeight = "h-4" }) {
+function StageRow({ stage, onApply, onRemove, stageRowHeight = "h-4", draggable = false, onDragStart, onDragOver, onDrop, onDragEnd, onKeyDown, onTouchStart, onTouchMove, onTouchEnd, stageIndex, isDragging, isDropTarget }) {
   const [promptOpen, setPromptOpen] = useState(false);
 
   return (
-    <div className="flex items-center gap-2">
+    <div
+      className={`flex items-center gap-2 ${draggable && !promptOpen ? 'cursor-grab' : ''} ${isDragging ? 'opacity-50 cursor-grabbing' : ''} ${isDropTarget ? 'border-t-2 border-amber-500' : ''}`}
+      draggable={draggable && !promptOpen}
+      tabIndex={draggable ? 0 : undefined}
+      data-stage-index={stageIndex}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      onKeyDown={onKeyDown}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
       <div className="flex-1">
         <ProgressBar
           value={stage.value}
@@ -374,8 +479,28 @@ function StageRow({ stage, onApply, onRemove, stageRowHeight = "h-4" }) {
 }
 
 
-function SongCard({ song, onUpdate, onZoom }) {
+function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDrop, onDragEnd, isDraggingSong, isDropTargetSong }) {
   const avg = songAverage(song);
+  const [tempoInput, setTempoInput] = useState(song.tempo.toString());
+  const [showTempoFeedback, setShowTempoFeedback] = useState(false);
+  const [isEditingTempo, setIsEditingTempo] = useState(false);
+  const [isEditingKey, setIsEditingKey] = useState(false);
+
+  const [selectedNote, selectedMode] = parseKey(song.key);
+  const [tempKeyNote, setTempKeyNote] = useState(selectedNote);
+  const [tempKeyMode, setTempKeyMode] = useState(selectedMode);
+
+  // Duration edit state
+  const [isEditingDuration, setIsEditingDuration] = useState(false);
+  const [tempMinutes, setTempMinutes] = useState("");
+  const [tempSeconds, setTempSeconds] = useState("");
+
+  // Drag-and-drop state (T006-T008, T045)
+  const draggedIndexRef = useRef(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchTimerRef = useRef(null);
+  const initialTouchYRef = useRef(null);
 
   const updateStageAt = (idx, patch) => {
     const stages = song.stages.map((s, i) => (i === idx ? { ...s, ...patch } : s));
@@ -385,8 +510,279 @@ function SongCard({ song, onUpdate, onZoom }) {
   const removeStageAt = (idx) => onUpdate({ ...song, stages: song.stages.filter((_, i) => i !== idx) });
   const addStage = () => onUpdate({ ...song, stages: [...song.stages, { name: `Stage ${song.stages.length + 1}`, value: 0 }] });
 
+  // Drag-and-drop handlers (T009-T013, T027-T031)
+  const moveStage = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    const newStages = [...song.stages];
+    const [movedStage] = newStages.splice(fromIndex, 1);
+    newStages.splice(toIndex, 0, movedStage);
+    onUpdate({ ...song, stages: newStages });
+  };
+
+  const handleDragStart = (e, index) => {
+    e.stopPropagation(); // Prevent song card drag
+    draggedIndexRef.current = index;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index);
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.stopPropagation(); // Prevent song card drag
+    if (draggedIndexRef.current === null) return;
+    setDropTargetIndex(index);
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    e.stopPropagation(); // Prevent song card drag
+    const fromIndex = draggedIndexRef.current;
+    if (fromIndex !== null && fromIndex !== dropIndex) {
+      moveStage(fromIndex, dropIndex);
+    }
+    draggedIndexRef.current = null;
+    setDropTargetIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleDragCancel = () => {
+    draggedIndexRef.current = null;
+    setDropTargetIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleDragEnd = (e) => {
+    e.stopPropagation(); // Prevent song card drag
+    handleDragCancel();
+  };
+
+  const handleKeyDown = (e, index) => {
+    // Cancel drag with Escape
+    if (isDragging && e.key === 'Escape') {
+      e.preventDefault();
+      handleDragCancel();
+      return;
+    }
+
+    // Keyboard reordering with Ctrl+Arrow keys (T036-T040, T042-T044)
+    if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+
+      if (e.key === 'ArrowUp' && index > 0) {
+        // Move stage up one position
+        moveStage(index, index - 1);
+      } else if (e.key === 'ArrowDown' && index < song.stages.length - 1) {
+        // Move stage down one position
+        moveStage(index, index + 1);
+      }
+    }
+  };
+
+  // Touch handlers (T047-T049, T051)
+  const handleTouchStart = (e, index) => {
+    const touch = e.touches[0];
+    initialTouchYRef.current = touch.clientY;
+
+    // Start 500ms long-press timer
+    touchTimerRef.current = setTimeout(() => {
+      draggedIndexRef.current = index;
+      setIsDragging(true);
+    }, 500);
+  };
+
+  const handleTouchMove = (e) => {
+    // Cancel timer if moving too early (scroll detected)
+    if (!isDragging && touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+      return;
+    }
+
+    if (isDragging) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      // Find which stage the touch is over
+      const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+      const stageElement = elements.find(el => el.getAttribute('data-stage-index'));
+      if (stageElement) {
+        const targetIndex = parseInt(stageElement.getAttribute('data-stage-index'));
+        setDropTargetIndex(targetIndex);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+
+    if (isDragging) {
+      const fromIndex = draggedIndexRef.current;
+      if (fromIndex !== null && dropTargetIndex !== null && fromIndex !== dropTargetIndex) {
+        moveStage(fromIndex, dropTargetIndex);
+      }
+      draggedIndexRef.current = null;
+      setDropTargetIndex(null);
+      setIsDragging(false);
+    }
+
+    initialTouchYRef.current = null;
+  };
+
+  const handleTempoLabelClick = () => {
+    if (isEditingKey) {
+      handleKeySave();
+    }
+    setIsEditingTempo(true);
+  };
+
+  const handleTempoChange = (e) => {
+    setTempoInput(e.target.value);
+  };
+
+  const handleTempoSave = () => {
+    const validated = validateTempo(tempoInput);
+    const wasClamped = validated !== parseFloat(tempoInput);
+
+    onUpdate({ ...song, tempo: validated });
+    setTempoInput(validated.toString());
+    setIsEditingTempo(false);
+
+    if (wasClamped) {
+      setShowTempoFeedback(true);
+      setTimeout(() => setShowTempoFeedback(false), 500);
+    }
+  };
+
+  const handleTempoCancel = () => {
+    setTempoInput(song.tempo.toString());
+    setIsEditingTempo(false);
+  };
+
+  const handleTempoKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleTempoSave();
+    } else if (e.key === 'Escape') {
+      handleTempoCancel();
+    }
+  };
+
+  const handleTempoBlur = () => {
+    handleTempoSave();
+  };
+
+  const handleKeyLabelClick = () => {
+    if (isEditingTempo) {
+      handleTempoSave();
+    }
+    setIsEditingKey(true);
+  };
+
+  const handleNoteChange = (note) => {
+    setTempKeyNote(note);
+    if (!note) {
+      setTempKeyMode(null);
+    } else if (!tempKeyMode) {
+      setTempKeyMode('Major');
+    }
+  };
+
+  const handleModeChange = (mode) => {
+    setTempKeyMode(mode);
+  };
+
+  const handleKeySave = () => {
+    if (!tempKeyNote) {
+      onUpdate({ ...song, key: null });
+    } else {
+      const normalized = normalizeNote(tempKeyNote, tempKeyMode || 'Major');
+      onUpdate({ ...song, key: `${normalized} ${tempKeyMode || 'Major'}` });
+    }
+    setIsEditingKey(false);
+  };
+
+  const handleKeyCancel = () => {
+    setTempKeyNote(selectedNote);
+    setTempKeyMode(selectedMode);
+    setIsEditingKey(false);
+  };
+
+  const handleKeyKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleKeySave();
+    } else if (e.key === 'Escape') {
+      handleKeyCancel();
+    }
+  };
+
+  const handleKeyBlur = (e) => {
+    // Check if focus is moving to another element within the container
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      handleKeySave();
+    }
+  };
+
+  // Duration handlers
+  const handleDurationLabelClick = () => {
+    setTempMinutes(song.duration.minutes.toString());
+    setTempSeconds(song.duration.seconds.toString());
+    setIsEditingDuration(true);
+  };
+
+  const handleDurationSave = () => {
+    const validated = validateDuration(
+      parseInt(tempMinutes),
+      parseInt(tempSeconds)
+    );
+    onUpdate({ ...song, duration: validated });
+    setIsEditingDuration(false);
+  };
+
+  const handleDurationCancel = () => {
+    setTempMinutes("");
+    setTempSeconds("");
+    setIsEditingDuration(false);
+  };
+
+  const handleDurationKeyDown = (e) => {
+    if (e.key === 'Enter') handleDurationSave();
+    else if (e.key === 'Escape') handleDurationCancel();
+  };
+
+  const handleDurationBlur = (e) => {
+    // Check if focus is moving to another element within the container
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      handleDurationSave();
+    }
+  };
+
+  // Sync tempoInput with song.tempo when song changes externally
+  useEffect(() => {
+    setTempoInput(song.tempo.toString());
+  }, [song.tempo]);
+
+  // Sync temp key values when song.key changes externally
+  useEffect(() => {
+    const [note, mode] = parseKey(song.key);
+    setTempKeyNote(note);
+    setTempKeyMode(mode);
+  }, [song.key]);
+
   return (
-		   <div className="bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm p-2 flex flex-col gap-2 h-[232px] w-[376px]">
+		   <div
+		     className={`
+		       bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm p-2 flex flex-col gap-2 h-[295px] w-[376px]
+		       ${isDraggingSong ? 'opacity-50' : ''}
+		       ${isDropTargetSong ? 'border-t-2 border-amber-500' : ''}
+		     `}
+		     draggable={true}
+		     onDragStart={(e) => onDragStart(e, index)}
+		     onDragOver={(e) => onDragOver(e, index)}
+		     onDrop={(e) => onDrop(e, index)}
+		     onDragEnd={onDragEnd}
+		   >
 		  <div className="flex items-center justify-between gap-2">
 			<EditableText
 			  text={song.title}
@@ -404,6 +800,104 @@ function SongCard({ song, onUpdate, onZoom }) {
 			</span>
 		  </div>
 
+		  {/* Key and Tempo inputs */}
+		  <div className="flex items-center gap-4 text-xs">
+			{/* Key selection */}
+			<div className="flex items-center gap-2">
+			  <label className="text-neutral-400 cursor-pointer hover:underline" onClick={handleKeyLabelClick}>Key:</label>
+			  {isEditingKey ? (
+				<div className="flex gap-2" onBlur={handleKeyBlur}>
+				  <select
+					value={tempKeyNote || ''}
+					onChange={(e) => handleNoteChange(e.target.value || null)}
+					onKeyDown={handleKeyKeyDown}
+					autoFocus
+					className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+				  >
+					<option value="">No Key</option>
+					{NOTES.map(n => <option key={n.value} value={n.value}>{n.label}</option>)}
+				  </select>
+				  <select
+					value={tempKeyMode || ''}
+					onChange={(e) => handleModeChange(e.target.value)}
+					onKeyDown={handleKeyKeyDown}
+					disabled={!tempKeyNote}
+					className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
+				  >
+					{MODES.map(m => <option key={m} value={m}>{m}</option>)}
+				  </select>
+				</div>
+			  ) : (
+				<span className="text-neutral-300">{song.key || 'No key'}</span>
+			  )}
+			</div>
+
+			{/* Tempo */}
+			<div className="flex items-center gap-2">
+			  <label className="text-neutral-400 cursor-pointer hover:underline" onClick={handleTempoLabelClick}>Tempo:</label>
+			  {isEditingTempo ? (
+				<input
+				  type="text"
+				  value={tempoInput}
+				  onChange={handleTempoChange}
+				  onBlur={handleTempoBlur}
+				  onKeyDown={handleTempoKeyDown}
+				  autoFocus
+				  className={`bg-neutral-800 border rounded px-2 py-1 w-16 text-center focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+					showTempoFeedback ? 'border-amber-500 animate-pulse' : 'border-neutral-700'
+				  }`}
+				  placeholder="120"
+				/>
+			  ) : (
+				<span className="text-neutral-300">{song.tempo} BPM</span>
+			  )}
+			</div>
+
+			{/* Duration */}
+			<div className="flex items-center gap-2">
+			  {!isEditingDuration ? (
+				<>
+				  <label
+					className="text-neutral-400 cursor-pointer hover:underline"
+					onClick={handleDurationLabelClick}
+				  >
+					Duration:
+				  </label>
+				  <span
+					className="text-neutral-300 cursor-pointer"
+					onClick={handleDurationLabelClick}
+				  >
+					{formatDuration(song.duration.minutes, song.duration.seconds)}
+				  </span>
+				</>
+			  ) : (
+				<>
+				  <label className="text-neutral-400">Duration:</label>
+				  <div className="flex gap-1 items-center" onBlur={handleDurationBlur}>
+					<input
+					  type="text"
+					  value={tempMinutes}
+					  onChange={(e) => setTempMinutes(e.target.value)}
+					  onKeyDown={handleDurationKeyDown}
+					  autoFocus
+					  className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 w-12 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+					  placeholder="M"
+					/>
+					<span className="text-neutral-400">:</span>
+					<input
+					  type="text"
+					  value={tempSeconds}
+					  onChange={(e) => setTempSeconds(e.target.value)}
+					  onKeyDown={handleDurationKeyDown}
+					  className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 w-12 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+					  placeholder="SS"
+					/>
+				  </div>
+				</>
+			  )}
+			</div>
+		  </div>
+
 		  <div className="flex-1 overflow-auto pr-1">
 			<div className="flex flex-col gap-1"> {/* less vertical gap */}
 			  {song.stages.map((stg, idx) => (
@@ -412,6 +906,18 @@ function SongCard({ song, onUpdate, onZoom }) {
 				  stage={stg}
 				  onApply={(name, value) => updateStageAt(idx, { name, value })}
 				  onRemove={() => removeStageAt(idx)}
+				  draggable={true}
+				  stageIndex={idx}
+				  onDragStart={(e) => handleDragStart(e, idx)}
+				  onDragOver={(e) => handleDragOver(e, idx)}
+				  onDrop={(e) => handleDrop(e, idx)}
+				  onDragEnd={handleDragEnd}
+				  onKeyDown={(e) => handleKeyDown(e, idx)}
+				  onTouchStart={(e) => handleTouchStart(e, idx)}
+				  onTouchMove={handleTouchMove}
+				  onTouchEnd={handleTouchEnd}
+				  isDragging={isDragging && draggedIndexRef.current === idx}
+				  isDropTarget={dropTargetIndex === idx}
 				/>
 			  ))}
 			</div>
@@ -433,6 +939,26 @@ function SongCard({ song, onUpdate, onZoom }) {
 
 function SongDetail({ song, onUpdate, onBack }) {
   const avg = songAverage(song);
+  const [tempoInput, setTempoInput] = useState(song.tempo.toString());
+  const [showTempoFeedback, setShowTempoFeedback] = useState(false);
+  const [isEditingTempo, setIsEditingTempo] = useState(false);
+  const [isEditingKey, setIsEditingKey] = useState(false);
+
+  const [selectedNote, selectedMode] = parseKey(song.key);
+  const [tempKeyNote, setTempKeyNote] = useState(selectedNote);
+  const [tempKeyMode, setTempKeyMode] = useState(selectedMode);
+
+  // Duration edit state
+  const [isEditingDuration, setIsEditingDuration] = useState(false);
+  const [tempMinutes, setTempMinutes] = useState("");
+  const [tempSeconds, setTempSeconds] = useState("");
+
+  // Drag-and-drop state (T021-T022, T046)
+  const draggedIndexRef = useRef(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchTimerRef = useRef(null);
+  const initialTouchYRef = useRef(null);
 
   const updateStageAt = (idx, patch) => {
     const stages = song.stages.map((s, i) => (i === idx ? { ...s, ...patch } : s));
@@ -441,6 +967,260 @@ function SongDetail({ song, onUpdate, onBack }) {
 
   const removeStageAt = (idx) => onUpdate({ ...song, stages: song.stages.filter((_, i) => i !== idx) });
   const addStage = () => onUpdate({ ...song, stages: [...song.stages, { name: `Stage ${song.stages.length + 1}`, value: 0 }] });
+
+  // Drag-and-drop handlers (T023-T024, T032-T034) - Mirror SongCard
+  const moveStage = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    const newStages = [...song.stages];
+    const [movedStage] = newStages.splice(fromIndex, 1);
+    newStages.splice(toIndex, 0, movedStage);
+    onUpdate({ ...song, stages: newStages });
+  };
+
+  const handleDragStart = (e, index) => {
+    draggedIndexRef.current = index;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index);
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    if (draggedIndexRef.current === null) return;
+    setDropTargetIndex(index);
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    const fromIndex = draggedIndexRef.current;
+    if (fromIndex !== null && fromIndex !== dropIndex) {
+      moveStage(fromIndex, dropIndex);
+    }
+    draggedIndexRef.current = null;
+    setDropTargetIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleDragCancel = () => {
+    draggedIndexRef.current = null;
+    setDropTargetIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleDragEnd = () => {
+    handleDragCancel();
+  };
+
+  const handleKeyDown = (e, index) => {
+    // Cancel drag with Escape
+    if (isDragging && e.key === 'Escape') {
+      e.preventDefault();
+      handleDragCancel();
+      return;
+    }
+
+    // Keyboard reordering with Ctrl+Arrow keys (T036-T040, T042-T044)
+    if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+
+      if (e.key === 'ArrowUp' && index > 0) {
+        // Move stage up one position
+        moveStage(index, index - 1);
+      } else if (e.key === 'ArrowDown' && index < song.stages.length - 1) {
+        // Move stage down one position
+        moveStage(index, index + 1);
+      }
+    }
+  };
+
+  // Touch handlers (T047-T049, T051)
+  const handleTouchStart = (e, index) => {
+    const touch = e.touches[0];
+    initialTouchYRef.current = touch.clientY;
+
+    // Start 500ms long-press timer
+    touchTimerRef.current = setTimeout(() => {
+      draggedIndexRef.current = index;
+      setIsDragging(true);
+    }, 500);
+  };
+
+  const handleTouchMove = (e) => {
+    // Cancel timer if moving too early (scroll detected)
+    if (!isDragging && touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+      return;
+    }
+
+    if (isDragging) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      // Find which stage the touch is over
+      const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
+      const stageElement = elements.find(el => el.getAttribute('data-stage-index'));
+      if (stageElement) {
+        const targetIndex = parseInt(stageElement.getAttribute('data-stage-index'));
+        setDropTargetIndex(targetIndex);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+
+    if (isDragging) {
+      const fromIndex = draggedIndexRef.current;
+      if (fromIndex !== null && dropTargetIndex !== null && fromIndex !== dropTargetIndex) {
+        moveStage(fromIndex, dropTargetIndex);
+      }
+      draggedIndexRef.current = null;
+      setDropTargetIndex(null);
+      setIsDragging(false);
+    }
+
+    initialTouchYRef.current = null;
+  };
+
+  const handleTempoLabelClick = () => {
+    if (isEditingKey) {
+      handleKeySave();
+    }
+    setIsEditingTempo(true);
+  };
+
+  const handleTempoChange = (e) => {
+    setTempoInput(e.target.value);
+  };
+
+  const handleTempoSave = () => {
+    const validated = validateTempo(tempoInput);
+    const wasClamped = validated !== parseFloat(tempoInput);
+
+    onUpdate({ ...song, tempo: validated });
+    setTempoInput(validated.toString());
+    setIsEditingTempo(false);
+
+    if (wasClamped) {
+      setShowTempoFeedback(true);
+      setTimeout(() => setShowTempoFeedback(false), 500);
+    }
+  };
+
+  const handleTempoCancel = () => {
+    setTempoInput(song.tempo.toString());
+    setIsEditingTempo(false);
+  };
+
+  const handleTempoKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleTempoSave();
+    } else if (e.key === 'Escape') {
+      handleTempoCancel();
+    }
+  };
+
+  const handleTempoBlur = () => {
+    handleTempoSave();
+  };
+
+  const handleKeyLabelClick = () => {
+    if (isEditingTempo) {
+      handleTempoSave();
+    }
+    setIsEditingKey(true);
+  };
+
+  const handleNoteChange = (note) => {
+    setTempKeyNote(note);
+    if (!note) {
+      setTempKeyMode(null);
+    } else if (!tempKeyMode) {
+      setTempKeyMode('Major');
+    }
+  };
+
+  const handleModeChange = (mode) => {
+    setTempKeyMode(mode);
+  };
+
+  const handleKeySave = () => {
+    if (!tempKeyNote) {
+      onUpdate({ ...song, key: null });
+    } else {
+      const normalized = normalizeNote(tempKeyNote, tempKeyMode || 'Major');
+      onUpdate({ ...song, key: `${normalized} ${tempKeyMode || 'Major'}` });
+    }
+    setIsEditingKey(false);
+  };
+
+  const handleKeyCancel = () => {
+    setTempKeyNote(selectedNote);
+    setTempKeyMode(selectedMode);
+    setIsEditingKey(false);
+  };
+
+  const handleKeyKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleKeySave();
+    } else if (e.key === 'Escape') {
+      handleKeyCancel();
+    }
+  };
+
+  const handleKeyBlur = (e) => {
+    // Check if focus is moving to another element within the container
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      handleKeySave();
+    }
+  };
+
+  // Duration handlers
+  const handleDurationLabelClick = () => {
+    setTempMinutes(song.duration.minutes.toString());
+    setTempSeconds(song.duration.seconds.toString());
+    setIsEditingDuration(true);
+  };
+
+  const handleDurationSave = () => {
+    const validated = validateDuration(
+      parseInt(tempMinutes),
+      parseInt(tempSeconds)
+    );
+    onUpdate({ ...song, duration: validated });
+    setIsEditingDuration(false);
+  };
+
+  const handleDurationCancel = () => {
+    setTempMinutes("");
+    setTempSeconds("");
+    setIsEditingDuration(false);
+  };
+
+  const handleDurationKeyDown = (e) => {
+    if (e.key === 'Enter') handleDurationSave();
+    else if (e.key === 'Escape') handleDurationCancel();
+  };
+
+  const handleDurationBlur = (e) => {
+    // Check if focus is moving to another element within the container
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      handleDurationSave();
+    }
+  };
+
+  useEffect(() => {
+    setTempoInput(song.tempo.toString());
+  }, [song.tempo]);
+
+  useEffect(() => {
+    const [note, mode] = parseKey(song.key);
+    setTempKeyNote(note);
+    setTempKeyMode(mode);
+  }, [song.key]);
 
   return (
 	  <div className="h-screen w-screen bg-black flex items-center justify-center">
@@ -466,6 +1246,104 @@ function SongDetail({ song, onUpdate, onBack }) {
 			</span>
 		  </div>
 
+		  {/* Key and Tempo inputs */}
+		  <div className="flex items-center gap-6 mb-3">
+			{/* Key selection */}
+			<div className="flex items-center gap-3">
+			  <label className="text-neutral-400 cursor-pointer hover:underline" onClick={handleKeyLabelClick}>Key:</label>
+			  {isEditingKey ? (
+				<div className="flex gap-3" onBlur={handleKeyBlur}>
+				  <select
+					value={tempKeyNote || ''}
+					onChange={(e) => handleNoteChange(e.target.value || null)}
+					onKeyDown={handleKeyKeyDown}
+					autoFocus
+					className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500"
+				  >
+					<option value="">No Key</option>
+					{NOTES.map(n => <option key={n.value} value={n.value}>{n.label}</option>)}
+				  </select>
+				  <select
+					value={tempKeyMode || ''}
+					onChange={(e) => handleModeChange(e.target.value)}
+					onKeyDown={handleKeyKeyDown}
+					disabled={!tempKeyNote}
+					className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
+				  >
+					{MODES.map(m => <option key={m} value={m}>{m}</option>)}
+				  </select>
+				</div>
+			  ) : (
+				<span className="text-neutral-300 font-bold">{song.key || 'No key'}</span>
+			  )}
+			</div>
+
+			{/* Tempo */}
+			<div className="flex items-center gap-3">
+			  <label className="text-neutral-400 cursor-pointer hover:underline" onClick={handleTempoLabelClick}>Tempo:</label>
+			  {isEditingTempo ? (
+				<input
+				  type="text"
+				  value={tempoInput}
+				  onChange={handleTempoChange}
+				  onBlur={handleTempoBlur}
+				  onKeyDown={handleTempoKeyDown}
+				  autoFocus
+				  className={`bg-neutral-800 border rounded px-3 py-2 w-24 text-center focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+					showTempoFeedback ? 'border-amber-500 animate-pulse' : 'border-neutral-700'
+				  }`}
+				  placeholder="120"
+				/>
+			  ) : (
+				<span className="text-neutral-300 font-bold">{song.tempo} BPM</span>
+			  )}
+			</div>
+
+			{/* Duration */}
+			<div className="flex items-center gap-3">
+			  {!isEditingDuration ? (
+				<>
+				  <label
+					className="text-neutral-400 cursor-pointer hover:underline"
+					onClick={handleDurationLabelClick}
+				  >
+					Duration:
+				  </label>
+				  <span
+					className="text-neutral-300 font-bold cursor-pointer"
+					onClick={handleDurationLabelClick}
+				  >
+					{formatDuration(song.duration.minutes, song.duration.seconds)}
+				  </span>
+				</>
+			  ) : (
+				<>
+				  <label className="text-neutral-400">Duration:</label>
+				  <div className="flex gap-1 items-center" onBlur={handleDurationBlur}>
+					<input
+					  type="text"
+					  value={tempMinutes}
+					  onChange={(e) => setTempMinutes(e.target.value)}
+					  onKeyDown={handleDurationKeyDown}
+					  autoFocus
+					  className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 w-16 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+					  placeholder="M"
+					/>
+					<span className="text-neutral-400">:</span>
+					<input
+					  type="text"
+					  value={tempSeconds}
+					  onChange={(e) => setTempSeconds(e.target.value)}
+					  onKeyDown={handleDurationKeyDown}
+					  className="bg-neutral-800 border border-neutral-700 rounded px-3 py-2 w-16 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+					  placeholder="SS"
+					/>
+				  </div>
+				</>
+			  )}
+			</div>
+		  </div>
+
 		  {/* make this fill remaining space; no fixed height */}
 		  <div className="flex-1 overflow-auto pr-1">
 			<div className="flex flex-col gap-3">
@@ -476,6 +1354,18 @@ function SongDetail({ song, onUpdate, onBack }) {
 					onApply={(name, value) => updateStageAt(idx, { name, value })}
 					onRemove={() => removeStageAt(idx)}
 					stageRowHeight = "h-8"
+					draggable={true}
+					stageIndex={idx}
+					onDragStart={(e) => handleDragStart(e, idx)}
+					onDragOver={(e) => handleDragOver(e, idx)}
+					onDrop={(e) => handleDrop(e, idx)}
+					onDragEnd={handleDragEnd}
+					onKeyDown={(e) => handleKeyDown(e, idx)}
+					onTouchStart={(e) => handleTouchStart(e, idx)}
+					onTouchMove={handleTouchMove}
+					onTouchEnd={handleTouchEnd}
+					isDragging={isDragging && draggedIndexRef.current === idx}
+					isDropTarget={dropTargetIndex === idx}
 				  />
 				))}
 			</div>
@@ -523,20 +1413,58 @@ export default function App() {
   // Migrate older storage shapes
   const migrateSongs = (s) => {
     if (!s) return DEFAULT_SONGS;
-    return s.map((song) => {
-      if (Array.isArray(song.stages)) return song; // v2+
-      if (song.stages && typeof song.stages === "object") {
+
+    const migratedSongs = s.map((song, index) => {
+      let migratedStages = song.stages;
+
+      // Migrate stages format
+      if (Array.isArray(song.stages)) {
+        migratedStages = song.stages; // v2+
+      } else if (song.stages && typeof song.stages === "object") {
         const entries = Object.entries(song.stages).map(([name, value]) => ({ name, value: Number(value) || 0 }));
-        return { ...song, stages: entries };
+        migratedStages = entries;
+      } else {
+        migratedStages = DEFAULT_STAGE_NAMES.map((n) => ({ name: n, value: 0 }));
       }
-      return { ...song, stages: DEFAULT_STAGE_NAMES.map((n) => ({ name: n, value: 0 })) };
+
+      // Migrate tempo (add default if missing or invalid)
+      const tempo = (typeof song.tempo === 'number' && song.tempo >= 30 && song.tempo <= 300)
+        ? song.tempo
+        : DEFAULT_TEMPO;
+
+      // Migrate key (add default if missing or invalid)
+      const key = (typeof song.key === 'string' && song.key.trim() !== '')
+        ? song.key
+        : null;
+
+      // Migrate duration (add default if missing)
+      const duration = (song.duration && typeof song.duration.minutes === 'number' && typeof song.duration.seconds === 'number')
+        ? song.duration
+        : { minutes: 0, seconds: 0 };
+
+      return { ...song, stages: migratedStages, tempo, key, duration };
     });
+
+    // Fix duplicate IDs - reassign sequential IDs if duplicates found
+    const ids = migratedSongs.map(s => s.id);
+    const hasDuplicates = ids.some((id, index) => ids.indexOf(id) !== index);
+
+    if (hasDuplicates) {
+      console.warn('Duplicate song IDs detected, reassigning unique IDs');
+      return migratedSongs.map((song, index) => ({ ...song, id: index + 1 }));
+    }
+
+    return migratedSongs;
   };
 
   const [songs, setSongs] = useState(() => migrateSongs(stored.songs) || DEFAULT_SONGS);
   const [albumTitle, setAlbumTitle] = useState(() => stored.albumTitle || "Album Dashboard");
   // Feature 001: Use migrateDeadline for validation and default (12 months from now)
   const [targetISO, setTargetISO] = useState(() => migrateDeadline(stored.targetISO));
+
+  // Drag state for song reordering
+  const [draggedSongIndex, setDraggedSongIndex] = useState(null);
+  const [dropTargetSongIndex, setDropTargetSongIndex] = useState(null);
 
   const hash = useHashRoute();
   const songIdFromHash = useMemo(() => {
@@ -555,8 +1483,58 @@ export default function App() {
 
   const updateSong = (updated) => setSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
 
+  // Drag handlers for song reordering
+  const handleSongDragStart = (event, index) => {
+    setDraggedSongIndex(index);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleSongDragOver = (event, index) => {
+    event.preventDefault(); // Required to enable drop
+    setDropTargetSongIndex(index);
+  };
+
+  const handleSongDrop = (event, targetIndex) => {
+    event.preventDefault();
+
+    // Validation checks
+    if (draggedSongIndex === null) return; // Invalid state
+    if (draggedSongIndex === targetIndex) return; // No-op (same position)
+
+    // Immutable array reordering
+    const newSongs = [...songs];
+    const [draggedSong] = newSongs.splice(draggedSongIndex, 1);
+    newSongs.splice(targetIndex, 0, draggedSong);
+
+    // Update state (triggers localStorage persistence via useEffect)
+    setSongs(newSongs);
+
+    // Reset drag state
+    setDraggedSongIndex(null);
+    setDropTargetSongIndex(null);
+  };
+
+  const handleSongDragEnd = () => {
+    setDraggedSongIndex(null);
+    setDropTargetSongIndex(null);
+  };
+
+  // Escape key handler to cancel drag
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && draggedSongIndex !== null) {
+        setDraggedSongIndex(null);
+        setDropTargetSongIndex(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [draggedSongIndex]);
+
 	  useEffect(() => {
-		document.title = "ALBUM 2026";
+		document.title = "SPINNING LIGHTS";
 	  }, [albumTitle]);
 	  
   return (
@@ -595,12 +1573,19 @@ export default function App() {
 
 			<div className="px-4 pb-4 h-[calc(100vh-140px)] overflow-hidden">
 			  <div className="grid grid-cols-5 gap-1 justify-items-center">
-				{songs.map((song) => (
+				{songs.map((song, index) => (
 				  <SongCard
 					key={song.id}
 					song={song}
+					index={index}
 					onUpdate={updateSong}
 					onZoom={(id) => (window.location.hash = `#song/${id}`)}
+					onDragStart={handleSongDragStart}
+					onDragOver={handleSongDragOver}
+					onDrop={handleSongDrop}
+					onDragEnd={handleSongDragEnd}
+					isDraggingSong={draggedSongIndex === index}
+					isDropTargetSong={dropTargetSongIndex === index}
 				  />
 				))}
 			  </div>
