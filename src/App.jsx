@@ -50,6 +50,7 @@ const DEFAULT_SONGS = Array.from({ length: 12 }).map((_, i) => ({
   tempo: DEFAULT_TEMPO,
   key: null,
   duration: { minutes: 0, seconds: 0 },
+  isDraft: false, // Default to non-draft status
 }));
 
 const STORAGE_KEY = "albumProgress_v3";
@@ -369,7 +370,10 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
 
   // Calculate total album duration (memoized)
   const totalDuration = useMemo(() => {
-    const totalSeconds = songs.reduce((acc, song) => {
+    // Filter out draft songs before calculation
+    const nonDraftSongs = songs.filter(song => !song.isDraft);
+
+    const totalSeconds = nonDraftSongs.reduce((acc, song) => {
       if (!song.duration) return acc; // Handle missing duration field
 
       const minutes = Math.max(0, song.duration.minutes || 0);
@@ -774,6 +778,7 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
 		   <div
 		     className={`
 		       bg-neutral-900 border border-neutral-800 rounded-2xl shadow-sm p-2 flex flex-col gap-2 h-[295px] w-[376px]
+		       ${song.isDraft ? 'opacity-60' : ''}
 		       ${isDraggingSong ? 'opacity-50' : ''}
 		       ${isDropTargetSong ? 'border-t-2 border-amber-500' : ''}
 		     `}
@@ -1222,6 +1227,12 @@ function SongDetail({ song, onUpdate, onBack }) {
     setTempKeyMode(mode);
   }, [song.key]);
 
+  // Draft toggle handler
+  const handleDraftToggle = (event) => {
+    const newIsDraft = event.target.checked;
+    onUpdate({ ...song, isDraft: newIsDraft });
+  };
+
   return (
 	  <div className="h-screen w-screen bg-black flex items-center justify-center">
 		<div
@@ -1234,9 +1245,20 @@ function SongDetail({ song, onUpdate, onBack }) {
 			  onSubmit={(t) => onUpdate({ ...song, title: t })}
 			  className="text-3xl font-bold"
 			/>
-			<button className="px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700" onClick={onBack}>
-			  Back to Grid
-			</button>
+			<div className="flex items-center gap-2">
+			  <label className="flex items-center gap-1 text-sm">
+			    <input
+			      type="checkbox"
+			      checked={song.isDraft || false}
+			      onChange={handleDraftToggle}
+			      className="w-4 h-4 cursor-pointer"
+			    />
+			    <span>Draft</span>
+			  </label>
+			  <button className="px-3 py-2 rounded bg-neutral-800 hover:bg-neutral-700" onClick={onBack}>
+			    Back to Grid
+			  </button>
+			</div>
 		  </div>
 
 		  <div className="relative mb-3">
@@ -1442,7 +1464,10 @@ export default function App() {
         ? song.duration
         : { minutes: 0, seconds: 0 };
 
-      return { ...song, stages: migratedStages, tempo, key, duration };
+      // Migrate isDraft (add default if missing)
+      const isDraft = typeof song.isDraft === 'boolean' ? song.isDraft : false;
+
+      return { ...song, stages: migratedStages, tempo, key, duration, isDraft };
     });
 
     // Fix duplicate IDs - reassign sequential IDs if duplicates found
