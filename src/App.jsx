@@ -51,6 +51,7 @@ const DEFAULT_SONGS = Array.from({ length: 12 }).map((_, i) => ({
   key: null,
   duration: { minutes: 0, seconds: 0 },
   isDraft: false, // Default to non-draft status
+  side: "", // Default to no side assignment
 }));
 
 const STORAGE_KEY = "albumProgress_v3";
@@ -121,6 +122,23 @@ const formatTotalDuration = (totalMinutes) => {
   return `${hours}h ${minutes}m`;
 };
 
+// Calculate total duration for songs on a specific side (excluding drafts)
+const calculateSideDuration = (songs, sideValue) => {
+  const filtered = songs.filter(song =>
+    song.side === sideValue && !song.isDraft
+  );
+
+  const totalSeconds = filtered.reduce((sum, song) =>
+    sum + (song.duration.minutes * 60) + song.duration.seconds,
+    0
+  );
+
+  return {
+    minutes: Math.floor(totalSeconds / 60),
+    seconds: totalSeconds % 60
+  };
+};
+
 // Parse key string into [note, mode]
 function parseKey(keyString) {
   if (!keyString) return [null, null];
@@ -136,6 +154,8 @@ function normalizeNote(note, mode) {
   if (mode === 'Major' && majorConversions[note]) return majorConversions[note];
   if (mode === 'Minor' && minorConversions[note]) return minorConversions[note];
   return note;
+}
+
 // Feature 001: Persist Due Date - Validation helpers
 function isValidISODate(dateString) {
   if (typeof dateString !== 'string') return false;
@@ -364,7 +384,7 @@ function eligibleCount(songs, threshold = 75) {
   return [...songs].filter(s => songAverage(s) >= threshold).length;
 }
 
-function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
+function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle, songCount, setSongCount, sideTotals }) {
   const { days, hours, minutes, seconds } = useCountdown(targetISO);
   const [editingDate, setEditingDate] = useState(false);
 
@@ -398,14 +418,32 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle }) {
           className="text-2xl font-black tracking-wider"
           placeholder="Album Title"
         />
+        <div className="flex items-center gap-2 text-sm">
+          <label className="text-neutral-400">Album tracks:</label>
+          <input
+            type="number"
+            min="1"
+            max="99"
+            value={songCount}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (!isNaN(val) && val >= 1 && val <= 99) {
+                setSongCount(val);
+              }
+            }}
+            className="bg-neutral-800 border border-neutral-700 rounded px-2 py-1 w-16 text-center focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+        </div>
       </div>
 
 	  <div className="flex flex-col items-center">
 	  <div className="text-2xl font-black tracking-wider">
 	  {eligibleCount(nonDraftSongs, 90)}/{nonDraftSongs.length}
 	  </div>
-	  <div className="text-sm text-neutral-400">
-	  {formatTotalDuration(totalDuration)}
+	  <div className="flex items-center gap-3 text-sm text-neutral-400">
+	    <span>{formatTotalDuration(totalDuration)}</span>
+	    <span className="text-blue-400">Side 1: {formatDuration(sideTotals.side1.minutes, sideTotals.side1.seconds)}</span>
+	    <span className="text-purple-400">Side 2: {formatDuration(sideTotals.side2.minutes, sideTotals.side2.seconds)}</span>
 	  </div>
 	  </div>
 
@@ -484,7 +522,6 @@ function StageRow({ stage, onApply, onRemove, stageRowHeight = "h-4", draggable 
     </div>
   );
 }
-
 
 function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDrop, onDragEnd, isDraggingSong, isDropTargetSong }) {
   const avg = songAverage(song);
@@ -619,7 +656,7 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
     }
   };
 
-  const handleTouchEnd = (e) => {
+  const handleTouchEnd = () => {
     if (touchTimerRef.current) {
       clearTimeout(touchTimerRef.current);
       touchTimerRef.current = null;
@@ -792,11 +829,20 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
 		     onDragEnd={onDragEnd}
 		   >
 		  <div className="flex items-center justify-between gap-2">
-			<EditableText
-			  text={song.title}
-			  onSubmit={(t) => onUpdate({ ...song, title: t })}
-			  className="font-bold leading-tight text-xl tracking-wider"
-			/>
+			<div className="flex items-center gap-2">
+			  <EditableText
+				text={song.title}
+				onSubmit={(t) => onUpdate({ ...song, title: t })}
+				className="font-bold leading-tight text-xl tracking-wider"
+			  />
+			  {song.side && (
+				<span className={`text-xs px-2 py-0.5 rounded ${
+				  song.side === "1" ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
+				}`}>
+				  Side {song.side}
+				</span>
+			  )}
+			</div>
 			<button className="text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700" onClick={() => onZoom(song.id)} title="Zoom">Zoom</button>
 		  </div>
 
@@ -961,6 +1007,10 @@ function SongDetail({ song, onUpdate, onBack }) {
   const [tempMinutes, setTempMinutes] = useState("");
   const [tempSeconds, setTempSeconds] = useState("");
 
+  // Side input state
+  const [sideInput, setSideInput] = useState(song.side || "");
+  const [isValidSide, setIsValidSide] = useState(true);
+
   // Drag-and-drop state (T021-T022, T046)
   const draggedIndexRef = useRef(null);
   const [dropTargetIndex, setDropTargetIndex] = useState(null);
@@ -1074,7 +1124,7 @@ function SongDetail({ song, onUpdate, onBack }) {
     }
   };
 
-  const handleTouchEnd = (e) => {
+  const handleTouchEnd = () => {
     if (touchTimerRef.current) {
       clearTimeout(touchTimerRef.current);
       touchTimerRef.current = null;
@@ -1220,6 +1270,37 @@ function SongDetail({ song, onUpdate, onBack }) {
     }
   };
 
+  // Side handlers
+  const handleSideLabelClick = () => {
+    if (isEditingDuration) {
+      handleDurationSave();
+    }
+    // Focus the side input (input will handle focus itself)
+  };
+
+  const handleSideChange = (e) => {
+    setSideInput(e.target.value);
+  };
+
+  const handleSideBlur = () => {
+    const valid = sideInput === "" || sideInput === "1" || sideInput === "2";
+    setIsValidSide(valid);
+
+    if (valid) {
+      onUpdate({ ...song, side: sideInput });
+    }
+    // If invalid, input stays in error state
+  };
+
+  const handleSideKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur(); // Trigger validation
+    } else if (e.key === 'Escape') {
+      setSideInput(song.side || "");
+      setIsValidSide(true);
+    }
+  };
+
   useEffect(() => {
     setTempoInput(song.tempo.toString());
   }, [song.tempo]);
@@ -1229,6 +1310,12 @@ function SongDetail({ song, onUpdate, onBack }) {
     setTempKeyNote(note);
     setTempKeyMode(mode);
   }, [song.key]);
+
+  // Sync side input with song.side when song changes externally
+  useEffect(() => {
+    setSideInput(song.side || "");
+    setIsValidSide(true);
+  }, [song.side]);
 
   // Draft toggle handler
   const handleDraftToggle = (event) => {
@@ -1367,6 +1454,27 @@ function SongDetail({ song, onUpdate, onBack }) {
 				</>
 			  )}
 			</div>
+
+			{/* Side */}
+			<div className="flex items-center gap-3">
+			  <label
+				className="text-neutral-400 cursor-pointer hover:underline"
+				onClick={handleSideLabelClick}
+			  >
+				Side:
+			  </label>
+			  <input
+				type="text"
+				value={sideInput}
+				onChange={handleSideChange}
+				onBlur={handleSideBlur}
+				onKeyDown={handleSideKeyDown}
+				className={`bg-neutral-800 border rounded px-3 py-2 w-16 text-center focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+				  isValidSide ? 'border-neutral-700' : 'border-red-500'
+				}`}
+				placeholder="1/2"
+			  />
+			</div>
 		  </div>
 
 		  {/* make this fill remaining space; no fixed height */}
@@ -1439,7 +1547,7 @@ export default function App() {
   const migrateSongs = (s) => {
     if (!s) return DEFAULT_SONGS;
 
-    const migratedSongs = s.map((song, index) => {
+    const migratedSongs = s.map((song) => {
       let migratedStages = song.stages;
 
       // Migrate stages format
@@ -1470,7 +1578,12 @@ export default function App() {
       // Migrate isDraft (add default if missing)
       const isDraft = typeof song.isDraft === 'boolean' ? song.isDraft : false;
 
-      return { ...song, stages: migratedStages, tempo, key, duration, isDraft };
+      // Migrate side (add default if missing or invalid)
+      const side = typeof song.side === 'string' && (song.side === "" || song.side === "1" || song.side === "2")
+        ? song.side
+        : "";
+
+      return { ...song, stages: migratedStages, tempo, key, duration, isDraft, side };
     });
 
     // Fix duplicate IDs - reassign sequential IDs if duplicates found
@@ -1489,6 +1602,7 @@ export default function App() {
   const [albumTitle, setAlbumTitle] = useState(() => stored.albumTitle || "Album Dashboard");
   // Feature 001: Use migrateDeadline for validation and default (12 months from now)
   const [targetISO, setTargetISO] = useState(() => migrateDeadline(stored.targetISO));
+  const [songCount, setSongCount] = useState(() => stored.songCount || 12);
 
   // Drag state for song reordering
   const [draggedSongIndex, setDraggedSongIndex] = useState(null);
@@ -1505,9 +1619,15 @@ export default function App() {
 
   const currentSong = songIdFromHash ? songs.find((s) => s.id === songIdFromHash) : null;
 
+  // Calculate side duration totals (excludes draft songs)
+  const sideTotals = useMemo(() => ({
+    side1: calculateSideDuration(songs, "1"),
+    side2: calculateSideDuration(songs, "2")
+  }), [songs]);
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ songs, targetISO, albumTitle }));
-  }, [songs, targetISO, albumTitle]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ songs, targetISO, albumTitle, songCount }));
+  }, [songs, targetISO, albumTitle, songCount]);
 
   const updateSong = (updated) => setSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
 
@@ -1564,10 +1684,13 @@ export default function App() {
 	  useEffect(() => {
 		document.title = "SPINNING LIGHTS";
 	  }, [albumTitle]);
-	  
+
+  // Filter visible songs based on songCount (slice happens first, regardless of draft status)
+  const visibleSongs = songs.slice(0, songCount);
+
   return (
     <div className="h-screen w-full overflow-hidden bg-neutral-950 text-neutral-100">
-      
+
 
       {currentSong ? (
 		  <SongDetail
@@ -1580,14 +1703,17 @@ export default function App() {
 			<Header
 			  targetISO={targetISO}
 			  setTargetISO={setTargetISO}
-			  songs={songs}
+			  songs={visibleSongs}
 			  albumTitle={albumTitle}
 			  setAlbumTitle={setAlbumTitle}
+			  songCount={songCount}
+			  setSongCount={setSongCount}
+			  sideTotals={sideTotals}
 			/>
 
 			{/* Album-wide overall progress (with % in center) */}
 			{(() => {
-			  const nonDraftSongs = songs.filter(song => !song.isDraft);
+			  const nonDraftSongs = visibleSongs.filter(song => !song.isDraft);
 			  return (
 				<div className="px-4 -mt-2 pb-2 relative">
 				  <ProgressBar value={albumAverage(nonDraftSongs)} height="h-9" />
@@ -1606,7 +1732,7 @@ export default function App() {
 
 			<div className="px-4 pb-4 h-[calc(100vh-140px)] overflow-hidden">
 			  <div className="grid grid-cols-5 gap-1 justify-items-center">
-				{songs.map((song, index) => (
+				{visibleSongs.map((song, index) => (
 				  <SongCard
 					key={song.id}
 					song={song}
