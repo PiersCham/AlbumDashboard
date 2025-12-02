@@ -384,7 +384,7 @@ function eligibleCount(songs, threshold = 75) {
   return [...songs].filter(s => songAverage(s) >= threshold).length;
 }
 
-function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle, songCount, setSongCount, sideTotals }) {
+function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle, songCount, setSongCount, sideTotals, allSongs, isStorageQuotaOk, onAddSong }) {
   const { days, hours, minutes, seconds } = useCountdown(targetISO);
   const [editingDate, setEditingDate] = useState(false);
 
@@ -466,7 +466,23 @@ function Header({ targetISO, setTargetISO, songs, albumTitle, setAlbumTitle, son
             <div className="text-xs text-neutral-500">Target: {new Date(targetISO).toLocaleString()}</div>
           </div>
         )}
-        <ExportImport songs={songs} albumTitle={albumTitle} targetISO={targetISO} />
+        <div className="flex items-center gap-2">
+          <ExportImport songs={songs} albumTitle={albumTitle} targetISO={targetISO} />
+          <button
+            disabled={allSongs.length >= 99 || !isStorageQuotaOk}
+            onClick={onAddSong}
+            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-700 disabled:cursor-not-allowed transition-colors"
+            title={
+              allSongs.length >= 99
+                ? "Maximum 99 songs reached"
+                : !isStorageQuotaOk
+                ? "Storage quota approaching limit"
+                : "Add a new song"
+            }
+          >
+            Add Song
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -991,7 +1007,7 @@ function SongCard({ song, index, onUpdate, onZoom, onDragStart, onDragOver, onDr
   );
 }
 
-function SongDetail({ song, onUpdate, onBack }) {
+function SongDetail({ song, onUpdate, onBack, onRemove }) {
   const avg = songAverage(song);
   const [tempoInput, setTempoInput] = useState(song.tempo.toString());
   const [showTempoFeedback, setShowTempoFeedback] = useState(false);
@@ -1511,6 +1527,18 @@ function SongDetail({ song, onUpdate, onBack }) {
 			>
 			  +
 			</button>
+			<button
+			  onClick={() => {
+			    if (typeof onRemove === 'function') {
+			      onRemove(song.id);
+			      onBack();
+			    }
+			  }}
+			  className="px-3 py-2 rounded bg-red-600 hover:bg-red-500 transition-colors"
+			  title="Remove this song"
+			>
+			  Delete
+			</button>
 		  </div>
 		</div>
 	  </div>
@@ -1625,11 +1653,54 @@ export default function App() {
     side2: calculateSideDuration(songs, "2")
   }), [songs]);
 
+  // Feature 012: Storage quota check for add song button
+  const isStorageQuotaOk = useMemo(() => {
+    try {
+      const currentData = JSON.stringify({ songs, albumTitle, targetISO, songCount });
+      const bytesUsed = currentData.length * 2; // UTF-16
+      const quotaLimit = 5000000; // 5MB
+      return bytesUsed < (quotaLimit * 0.9);
+    } catch {
+      return false;
+    }
+  }, [songs, albumTitle, targetISO, songCount]);
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ songs, targetISO, albumTitle, songCount }));
   }, [songs, targetISO, albumTitle, songCount]);
 
   const updateSong = (updated) => setSongs((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+
+  // Feature 012: Add new song
+  const addSong = () => {
+    const newId = Math.max(...songs.map(s => s.id), 0) + 1;
+    const newSong = {
+      id: newId,
+      title: `Song ${newId}`,
+      stages: DEFAULT_STAGE_NAMES.map(name => ({ name, value: 0 })),
+      tempo: DEFAULT_TEMPO,
+      key: null,
+      duration: { minutes: 0, seconds: 0 },
+      isDraft: false,
+      side: ""
+    };
+    setSongs([...songs, newSong]);
+    setSongCount(songs.length + 1);
+  };
+
+  // Feature 012: Remove song
+  const removeSong = (songId) => {
+    const song = songs.find(s => s.id === songId);
+
+    if (song && songAverage(song) > 0) {
+      if (!window.confirm("This song has progress. Are you sure you want to delete it?")) {
+        return;
+      }
+    }
+
+    setSongs(songs.filter(s => s.id !== songId));
+    setSongCount(songs.length - 1);
+  };
 
   // Drag handlers for song reordering
   const handleSongDragStart = (event, index) => {
@@ -1697,6 +1768,7 @@ export default function App() {
 			song={currentSong}
 			onUpdate={updateSong}
 			onBack={() => (window.location.hash = "")}
+			onRemove={removeSong}
 		  />
 		) : (
 		  <>
@@ -1709,6 +1781,9 @@ export default function App() {
 			  songCount={songCount}
 			  setSongCount={setSongCount}
 			  sideTotals={sideTotals}
+			  allSongs={songs}
+			  isStorageQuotaOk={isStorageQuotaOk}
+			  onAddSong={addSong}
 			/>
 
 			{/* Album-wide overall progress (with % in center) */}
